@@ -35,7 +35,12 @@ let lockedModalScrollY = null;
 let importSession = null;
 let planCoverUrls = [];
 let modalCoverPreviewUrl = '';
+let modalCoverFile = null;
+let renderedModalKey = '';
 let verificationRefreshInFlight = false;
+let verificationRefreshPending = false;
+let hasDeferredAuthState = false;
+let deferredAuthStateUser = null;
 
 const accountStorageKey = uid => `${STORAGE_KEY}:user:${uid}`;
 
@@ -109,6 +114,14 @@ async function activateVerifiedAccount(user, mergeLocal = true, { cloudOnly = fa
 }
 
 async function handleAuthState(user) {
+  // Let native pickers and other transient editors finish before account-state
+  // changes are allowed to replace their DOM and discard in-progress input.
+  if (modal && !['auth', 'sync-import'].includes(modal.type)) {
+    hasDeferredAuthState = true;
+    deferredAuthStateUser = user;
+    return;
+  }
+
   if (!user) {
     syncEngine?.stop();
     syncEngine = null;
@@ -154,6 +167,21 @@ async function handleAuthState(user) {
   await activateVerifiedAccount(user, false);
 }
 
+async function refreshEmailVerificationOnFocus() {
+  const user = authServices?.auth?.currentUser;
+  if (!user || user.emailVerified || verificationRefreshInFlight) return;
+  if (modal && !['auth', 'sync-import'].includes(modal.type)) {
+    verificationRefreshPending = true;
+    return;
+  }
+  verificationRefreshInFlight = true;
+  try {
+    await user.reload();
+    if (authServices?.auth?.currentUser?.emailVerified) await handleAuthState(authServices.auth.currentUser);
+  } catch { /* Keep local access during temporary network failures. */ }
+  finally { verificationRefreshInFlight = false; }
+}
+
 async function initializeFirebaseAuth() {
   if (!firebaseIsConfigured()) return;
   try {
@@ -164,16 +192,7 @@ async function initializeFirebaseAuth() {
       syncStatus = { status: 'error', message: error?.message || '账号状态读取失败' };
       if (view === 'settings' && !modal) render();
     });
-    window.addEventListener('focus', async () => {
-      const user = authServices?.auth?.currentUser;
-      if (!user || user.emailVerified || verificationRefreshInFlight) return;
-      verificationRefreshInFlight = true;
-      try {
-        await user.reload();
-        if (authServices?.auth?.currentUser?.emailVerified) await handleAuthState(authServices.auth.currentUser);
-      } catch { /* Keep local access during temporary network failures. */ }
-      finally { verificationRefreshInFlight = false; }
-    });
+    window.addEventListener('focus', () => { void refreshEmailVerificationOnFocus(); });
   } catch (error) {
     syncStatus = { status: 'error', message: error?.message || '同步初始化失败' };
     if (view === 'settings') render();
@@ -258,13 +277,51 @@ function syncModalViewportLock() {
   }
 }
 
+function modalIdentity(value = modal) {
+  return value ? `${value.type}:${value.planId || value.bucketId || ''}` : '';
+}
+
+function captureModalFormDraft() {
+  const form = root.querySelector('.modal form');
+  if (!form) return null;
+  const fields = Array.from(form.elements).map((control, index) => ({
+    index,
+    name: control.name,
+    type: control.type,
+    value: control.value,
+    checked: control.checked
+  })).filter(field => field.name && field.type !== 'file');
+  return { key: renderedModalKey, fields };
+}
+
+function restoreModalFormDraft(draft, key) {
+  if (!draft || draft.key !== key) return;
+  const form = root.querySelector('.modal form');
+  if (!form) return;
+  draft.fields.forEach(field => {
+    const control = form.elements.item(field.index);
+    if (!control || control.name !== field.name) return;
+    if (field.type === 'checkbox' || field.type === 'radio') control.checked = field.checked;
+    else control.value = field.value;
+  });
+}
+
 function render({ preserveScroll = false, animate = true } = {}) {
   const previousScrollY = window.scrollY;
+  const nextModalKey = modalIdentity();
+  // Firebase callbacks may legitimately request a render while a modal is open.
+  // Carry its ordinary fields through that render; keep a selected cover File in
+  // memory as file inputs themselves cannot be repopulated after DOM replacement.
+  const modalDraft = captureModalFormDraft();
+  const keepPlanCover = modal?.type === 'plan' && renderedModalKey === nextModalKey && Boolean(modalCoverFile);
   syncModalViewportLock();
   planCoverUrls.forEach(url => URL.revokeObjectURL(url));
   planCoverUrls = [];
-  if (modalCoverPreviewUrl) URL.revokeObjectURL(modalCoverPreviewUrl);
-  modalCoverPreviewUrl = '';
+  if (!keepPlanCover) {
+    if (modalCoverPreviewUrl) URL.revokeObjectURL(modalCoverPreviewUrl);
+    modalCoverPreviewUrl = '';
+    modalCoverFile = null;
+  }
   root.innerHTML = `
     <div class="app-shell">
       ${sidebar()}
@@ -275,10 +332,28 @@ function render({ preserveScroll = false, animate = true } = {}) {
     </div>
     ${modalMarkup()}
   `;
+  restoreModalFormDraft(modalDraft, nextModalKey);
+  if (keepPlanCover && modalCoverPreviewUrl) {
+    const preview = root.querySelector('#plan-cover-preview');
+    preview.src = modalCoverPreviewUrl;
+    preview.hidden = false;
+    preview.closest('.plan-modal-preview')?.classList.add('has-cover');
+  }
+  renderedModalKey = nextModalKey;
   animateCounters();
   bindEvents();
   hydratePlanCovers();
   if (preserveScroll) requestAnimationFrame(() => window.scrollTo(0, previousScrollY));
+  if (!modal && hasDeferredAuthState) {
+    const user = deferredAuthStateUser;
+    hasDeferredAuthState = false;
+    deferredAuthStateUser = null;
+    queueMicrotask(() => { void handleAuthState(user); });
+  }
+  if (!modal && verificationRefreshPending) {
+    verificationRefreshPending = false;
+    queueMicrotask(() => { void refreshEmailVerificationOnFocus(); });
+  }
 }
 
 function openCoverDatabase() {
@@ -806,6 +881,8 @@ function bindEvents() {
     const preview = document.querySelector('#plan-cover-preview');
     const previewBox = preview?.closest('.plan-modal-preview');
     if (!file || !preview) return;
+    if (modalCoverPreviewUrl) URL.revokeObjectURL(modalCoverPreviewUrl);
+    modalCoverFile = file;
     modalCoverPreviewUrl = URL.createObjectURL(file);
     preview.src = modalCoverPreviewUrl;
     preview.hidden = false;
@@ -957,7 +1034,7 @@ async function savePlan(formData, form) {
   const amountCents = Math.round(Number(formData.get('amount')) * 100);
   const targetCents = Math.round(Number(formData.get('target') || 0) * 100);
   const note = String(formData.get('note') || '').trim();
-  const file = formData.get('cover');
+  const file = modalCoverFile || formData.get('cover');
   if (!name) return notify('请填写计划名称', 'error');
   if (!Number.isFinite(amountCents) || amountCents < 0 || !Number.isFinite(targetCents) || targetCents < 0) return notify('金额需为 0 或正数', 'error');
   const planId = modal.planId || '';
