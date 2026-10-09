@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.playwright-cli/
+*.local
+output/
+docs/
+.env.*
+!.env.example

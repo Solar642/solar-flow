@@ -1,0 +1,14 @@
+{
+  "name": "Solar Flow",
+  "short_name": "Solar Flow",
+  "description": "清晰、离线优先的个人资金流动工作台。",
+  "start_url": "/solar-flow/",
+  "scope": "/solar-flow/",
+  "display": "standalone",
+  "background_color": "#0d1b1e",
+  "theme_color": "#0d1b1e",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "/solar-flow/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
