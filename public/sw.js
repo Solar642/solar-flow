@@ -1,5 +1,15 @@
-const CACHE = 'solar-flow-v1';
-const APP_SHELL = ['/solar-flow/', '/solar-flow/index.html', '/solar-flow/manifest.webmanifest', '/solar-flow/favicon.svg'];
+const CACHE = 'solar-flow-v2';
+const APP_SHELL = [
+  '/solar-flow/',
+  '/solar-flow/index.html',
+  '/solar-flow/manifest.webmanifest',
+  '/solar-flow/favicon.svg',
+  '/solar-flow/favicon.svg?v=2',
+  '/solar-flow/icon-192.png',
+  '/solar-flow/icon-512.png',
+  '/solar-flow/icon-maskable-512.png',
+  '/solar-flow/apple-touch-icon.png',
+];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));

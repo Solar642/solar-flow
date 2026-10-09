@@ -335,11 +335,11 @@ function sidebar() {
     ['settings', '设置与同步']
   ];
   return `<aside class="sidebar">
-    <div class="brand"><div class="brand-mark"><span></span></div><div><strong>Solar Flow</strong><small>让钱流向生活</small></div></div>
+    <div class="brand"><img class="brand-mark" src="/solar-flow/favicon.svg?v=2" alt="" aria-hidden="true" /><div><strong>Solar Flow</strong><small>让钱流向生活</small></div></div>
     <nav class="nav-list" aria-label="主导航">${items.map(([id, label]) => `<button class="nav-item ${view === id ? 'active' : ''}" data-nav="${id}"><span class="nav-icon">${categoryGlyph(id)}</span><span>${label}</span></button>`).join('')}</nav>
     <div class="sidebar-bottom">
       <div class="offline-pill"><i></i><span>本机离线可用</span></div>
-      <div class="profile-chip"><div class="avatar">S</div><div><strong>Solar Flow</strong><small>人民币 · 个人版</small></div></div>
+      <div class="profile-chip"><img class="avatar" src="/solar-flow/favicon.svg?v=2" alt="" aria-hidden="true" /><div><strong>Solar Flow</strong><small>人民币 · 个人版</small></div></div>
     </div>
   </aside>`;
 }
