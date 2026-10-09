@@ -210,6 +210,7 @@ function sameMap(a, b) {
 export function startCloudSync(db, uid, {
   getState, setState, persistLocal, onStatus, onRemoteState,
   connectionTimeoutMs = SYNC_CONNECT_TIMEOUT_MS,
+  remoteStateDebounceMs = 180,
   firestore = { collection, doc, onSnapshot, runTransaction }
 }) {
   const recordsRef = firestore.collection(db, 'users', uid, 'records');
@@ -222,6 +223,7 @@ export function startCloudSync(db, uid, {
   let writeRequested = false;
   let unsubscribe = () => {};
   let connectionTimer = null;
+  let remoteStateTimer = null;
   let connectionTimedOut = false;
   let listenerGeneration = 0;
 
@@ -229,6 +231,13 @@ export function startCloudSync(db, uid, {
   const clearConnectionTimer = () => {
     if (connectionTimer !== null) clearTimeout(connectionTimer);
     connectionTimer = null;
+  };
+  const scheduleRemoteState = () => {
+    if (!onRemoteState || remoteStateTimer !== null || stopped) return;
+    remoteStateTimer = setTimeout(() => {
+      remoteStateTimer = null;
+      if (!stopped) onRemoteState();
+    }, remoteStateDebounceMs);
   };
 
   async function pushLocalWinners() {
@@ -315,7 +324,7 @@ export function startCloudSync(db, uid, {
       if (!sameMap(local, mergedStateRecords)) {
         setState(mergedState);
         persistLocal();
-        onRemoteState?.();
+        scheduleRemoteState();
       }
       previousRecords = mergedStateRecords;
       if (serverReady) void pushLocalWinners();
@@ -352,6 +361,8 @@ export function startCloudSync(db, uid, {
       stopped = true;
       listenerGeneration += 1;
       clearConnectionTimer();
+      if (remoteStateTimer !== null) clearTimeout(remoteStateTimer);
+      remoteStateTimer = null;
       unsubscribe();
       window.removeEventListener('online', retry);
       window.removeEventListener('offline', offline);

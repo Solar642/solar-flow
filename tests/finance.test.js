@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { classifyTransaction } from '../src/categorization.js';
-import { calendarForReview, rangeForReview, reviewSeries, robustWeightedAverage, savingsInsight } from '../src/analytics.js';
+import { calendarForReview, emergencyReserveRecommendation, rangeForReview, reviewSeries, robustWeightedAverage, savingsInsight } from '../src/analytics.js';
 import { applyImport, matchImportedRows, parseWorkbook } from '../src/importer.js';
 import { BUCKETS, activateLedger, clearActiveLedger, createLedger, expenseBuckets, initialState, loadState, pushHistory, sumAllocated, undoLast } from '../src/model.js';
 
@@ -161,6 +161,44 @@ test('robust monthly baseline resists a one-off income/spending spike', () => {
   const baseline = robustWeightedAverage([100000, 110000, 90000, 10000000]);
   assert.ok(baseline < 250000);
   assert.ok(baseline > 90000);
+});
+
+test('emergency reserve reference line adapts to robust recent essential spending', () => {
+  const rows = [
+    { date: '2026-07-08', direction: 'expense', amountCents: 100000, category: 'food' },
+    { date: '2026-08-08', direction: 'expense', amountCents: 110000, category: 'food' },
+    { date: '2026-09-08', direction: 'expense', amountCents: 1000000, category: 'food' },
+    { date: '2026-10-03', direction: 'expense', amountCents: 9000000, category: 'food' }
+  ];
+  const advice = emergencyReserveRecommendation(rows, '2026-10-09');
+  assert.equal(advice.sampleMonths, 3);
+  assert.equal(advice.provisional, false);
+  assert.equal(advice.basis, 'essential');
+  assert.ok(advice.targetCents > 0);
+  assert.ok(advice.targetCents < 600000, 'a one-off month should not dominate the suggested line');
+  assert.equal(emergencyReserveRecommendation([], '2026-10-09').targetCents, 0);
+});
+
+test('emergency reserve line is visibly provisional with fewer than three recorded months', () => {
+  const advice = emergencyReserveRecommendation([
+    { date: '2026-07-08', direction: 'expense', amountCents: 10000, category: 'food' },
+    { date: '2026-08-08', direction: 'expense', amountCents: 12000, category: 'food' }
+  ], '2026-10-09');
+  assert.equal(advice.sampleMonths, 2);
+  assert.equal(advice.provisional, true);
+  assert.equal(advice.targetCents, 33000);
+});
+
+test('income-only months do not dilute the emergency reserve reference', () => {
+  const rows = [
+    { date: '2026-07-08', direction: 'expense', amountCents: 10000, category: 'food' },
+    { date: '2026-07-15', direction: 'income', amountCents: 300000, category: 'salary' },
+    { date: '2026-08-08', direction: 'expense', amountCents: 12000, category: 'food' },
+    { date: '2026-08-15', direction: 'income', amountCents: 300000, category: 'salary' }
+  ];
+  const advice = emergencyReserveRecommendation(rows, '2026-10-09');
+  assert.equal(advice.sampleMonths, 2);
+  assert.equal(advice.targetCents, 33000);
 });
 
 test('savings guidance waits for enough observed months', () => {

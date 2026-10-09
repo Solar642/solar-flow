@@ -126,3 +126,62 @@ test('cloud connection timeout is visible and manual retry reconnects the listen
     else delete globalThis.navigator;
   }
 });
+
+test('a burst of remote snapshots updates app state immediately but coalesces UI refreshes', async () => {
+  const originalWindow = globalThis.window;
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  globalThis.window = { addEventListener() {}, removeEventListener() {} };
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { onLine: true } });
+
+  const subscriptions = [];
+  const firestore = {
+    collection: () => ({}),
+    doc: (_records, id) => ({ id }),
+    onSnapshot: (_records, onNext) => {
+      subscriptions.push(onNext);
+      return () => {};
+    },
+    runTransaction: async (_db, operation) => operation({
+      get: async () => ({ exists: () => false }),
+      set() {}
+    })
+  };
+  const state = initialState();
+  let remoteRefreshes = 0;
+  const asSnapshot = remoteState => ({
+    docs: [...stateRecords(remoteState).values()].map(({ key, ...record }) => ({
+      id: key,
+      data: () => structuredClone(record)
+    })),
+    metadata: { fromCache: false }
+  });
+  const firstRemote = initialState();
+  addTransaction(firstRemote, { id: 'remote-one', date: '2026-10-08', direction: 'expense', amountCents: 500, merchant: '午餐', source: 'manual' });
+  const secondRemote = structuredClone(firstRemote);
+  addTransaction(secondRemote, { id: 'remote-two', date: '2026-10-09', direction: 'expense', amountCents: 700, merchant: '晚餐', source: 'manual' });
+
+  const engine = startCloudSync({}, 'test-user', {
+    getState: () => state,
+    setState: next => Object.assign(state, next),
+    persistLocal() {},
+    onStatus() {},
+    onRemoteState: () => { remoteRefreshes++; },
+    remoteStateDebounceMs: 25,
+    firestore
+  });
+
+  try {
+    subscriptions[0](asSnapshot(firstRemote));
+    await new Promise(resolve => setTimeout(resolve, 5));
+    subscriptions[0](asSnapshot(secondRemote));
+    assert.equal(state.transactions.length, 2);
+    await new Promise(resolve => setTimeout(resolve, 40));
+    assert.equal(remoteRefreshes, 1);
+  } finally {
+    engine.stop();
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+    if (originalNavigator) Object.defineProperty(globalThis, 'navigator', originalNavigator);
+    else delete globalThis.navigator;
+  }
+});

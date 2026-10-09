@@ -6,7 +6,8 @@ import {
 } from './model.js';
 import { applyImport, matchImportedRows, parseWorkbook } from './importer.js';
 import { transactionCategories } from './categorization.js';
-import { calendarForReview, periodTitle, previousRange, rangeForReview, reviewSeries, savingsInsight, shiftReviewAnchor } from './analytics.js';
+import { calendarForReview, emergencyReserveRecommendation, periodTitle, previousRange, rangeForReview, reviewSeries, savingsInsight, shiftReviewAnchor } from './analytics.js';
+import { messageForAuthError } from './auth-errors.js';
 
 const root = document.querySelector('#app');
 let state = loadState();
@@ -34,6 +35,7 @@ let lockedModalScrollY = null;
 let importSession = null;
 let planCoverUrls = [];
 let modalCoverPreviewUrl = '';
+let verificationRefreshInFlight = false;
 
 const accountStorageKey = uid => `${STORAGE_KEY}:user:${uid}`;
 
@@ -100,7 +102,7 @@ async function activateVerifiedAccount(user, mergeLocal = true, { cloudOnly = fa
         : next;
       if (!modal && view === 'settings') render();
     },
-    onRemoteState: () => { if (!modal) render(); }
+    onRemoteState: () => { if (!modal) render({ preserveScroll: true, animate: false }); }
   });
   modal = null;
   render();
@@ -164,8 +166,13 @@ async function initializeFirebaseAuth() {
     });
     window.addEventListener('focus', async () => {
       const user = authServices?.auth?.currentUser;
-      if (!user) return;
-      try { await user.reload(); await handleAuthState(user); } catch { /* Keep local access during temporary network failures. */ }
+      if (!user || user.emailVerified || verificationRefreshInFlight) return;
+      verificationRefreshInFlight = true;
+      try {
+        await user.reload();
+        if (authServices?.auth?.currentUser?.emailVerified) await handleAuthState(authServices.auth.currentUser);
+      } catch { /* Keep local access during temporary network failures. */ }
+      finally { verificationRefreshInFlight = false; }
     });
   } catch (error) {
     syncStatus = { status: 'error', message: error?.message || '同步初始化失败' };
@@ -251,7 +258,8 @@ function syncModalViewportLock() {
   }
 }
 
-function render() {
+function render({ preserveScroll = false, animate = true } = {}) {
+  const previousScrollY = window.scrollY;
   syncModalViewportLock();
   planCoverUrls.forEach(url => URL.revokeObjectURL(url));
   planCoverUrls = [];
@@ -262,7 +270,7 @@ function render() {
       ${sidebar()}
       <main class="main-content">
         ${topbar()}
-        <div class="page-body">${view === 'overview' ? overview() : view === 'transactions' ? transactionsPage() : view === 'review' ? reviewPage() : view === 'plan' ? planPage() : view === 'obligations' ? obligationsPage() : view === 'ledgers' ? ledgersPage() : settingsPage()}</div>
+        <div class="page-body ${animate ? '' : 'no-page-animation'}">${view === 'overview' ? overview() : view === 'transactions' ? transactionsPage() : view === 'review' ? reviewPage() : view === 'plan' ? planPage() : view === 'obligations' ? obligationsPage() : view === 'ledgers' ? ledgersPage() : settingsPage()}</div>
       </main>
     </div>
     ${modalMarkup()}
@@ -270,6 +278,7 @@ function render() {
   animateCounters();
   bindEvents();
   hydratePlanCovers();
+  if (preserveScroll) requestAnimationFrame(() => window.scrollTo(0, previousScrollY));
 }
 
 function openCoverDatabase() {
@@ -569,16 +578,27 @@ function monthGrid(series, metric) {
   return `<div class="month-grid">${series.map(item => `<div class="month-cell"><span>${item.label}</span><strong>${item.amount ? formatShortMoney(item.amount) : '—'}</strong><i class="${metric}" style="--month-fill:${item.amount ? Math.max(5,item.amount/max*100) : 0}%"></i></div>`).join('')}</div>`;
 }
 
+function reserveSuggestionMarkup(currentCents, recommendation) {
+  if (!recommendation?.targetCents) return '<p class="reserve-empty">记下支出后自动生成建议线</p>';
+  const ratio = currentCents / recommendation.targetCents * 100;
+  const basis = recommendation.basis === 'essential' ? '必要支出' : '月支出';
+  const basisLabel = recommendation.provisional
+    ? `初步参考 · ${recommendation.sampleMonths} 个有记录月份`
+    : `近 6 个月稳健月${basis} × 3`;
+  return `<div class="reserve-suggestion"><div class="reserve-track" role="progressbar" aria-label="紧急资金动态建议线 ${formatMoney(recommendation.targetCents)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.min(100, Math.round(ratio))}"><span style="width:${Math.min(100, ratio)}%"></span></div><div class="target-meta"><span>建议线 ${formatMoney(recommendation.targetCents)}</span><span>${currentCents >= recommendation.targetCents ? '已达到参考值' : `${Math.round(ratio)}%`}</span></div><small>${basisLabel} · 非硬性目标</small></div>`;
+}
+
 function planPage() {
   const total = sumAssets(state);
   const allocated = sumAllocated(state);
   const residual = Math.max(0, total - allocated);
+  const reserveRecommendation = emergencyReserveRecommendation(state.transactions, today());
   const priority = ['生活资金', '其他资金', '自由资金', '计划资金', '紧急资金'];
   const fixedBuckets = BUCKETS.filter(bucket => bucket.id !== 'planned');
   return `<section class="section-head page-title allocation-summary" aria-label="总资产"><div></div><div class="allocation-total"><span>当前总资产</span><strong>${formatMoney(total)}</strong></div></section><div class="callout"><span>✦</span><div><strong>支出优先顺序</strong><p class="priority-flow">${priority.map((label, index) => `<span>${index + 1}. ${label}</span>${index < priority.length - 1 ? '<b>→</b>' : ''}`).join('')}</p></div></div><section class="bucket-grid">${fixedBuckets.map(bucket => {
     const value = bucket.id === 'other' ? residual : Number(state.allocations[bucket.id] || 0);
     const editable = bucket.id !== 'other';
-    return `<article class="bucket-card ${bucket.tone} ${editable ? 'interactive' : 'automatic'}" ${editable ? `data-bucket-open="${bucket.id}" role="button" tabindex="0" aria-label="调整${bucket.label}余额"` : ''}><div class="bucket-top"><span class="bucket-symbol">${categoryGlyph(bucket.id)}</span>${editable ? '<span class="card-open-mark" aria-hidden="true">↗</span>' : '<span class="auto-tag">自动</span>'}</div><span class="eyebrow">${bucket.label}</span><strong>${formatMoney(value)}</strong><p>${bucket.description}</p>${bucket.id === 'other' ? '<div class="bucket-footnote">总资产扣除已分配金额</div>' : ''}</article>`;
+    return `<article class="bucket-card ${bucket.tone} ${editable ? 'interactive' : 'automatic'}" ${editable ? `data-bucket-open="${bucket.id}" role="button" tabindex="0" aria-label="调整${bucket.label}余额"` : ''}><div class="bucket-top"><span class="bucket-symbol">${categoryGlyph(bucket.id)}</span>${editable ? '<span class="card-open-mark" aria-hidden="true">↗</span>' : '<span class="auto-tag">自动</span>'}</div><span class="eyebrow">${bucket.label}</span><strong>${formatMoney(value)}</strong><p>${bucket.description}</p>${bucket.id === 'emergency' ? reserveSuggestionMarkup(value, reserveRecommendation) : bucket.id === 'other' ? '<div class="bucket-footnote">总资产扣除已分配金额</div>' : ''}</article>`;
   }).join('')}</section><section class="plans-section"><div class="plans-heading"><div><h3>计划资金</h3><span>${(state.plans || []).length} 个计划</span></div><button class="primary-button" data-plan-new>＋ 新建计划</button></div>${state.plans?.length ? `<div class="plans-grid">${state.plans.map(plan => {
     const amount = Math.max(0, Number(plan.amountCents || 0));
     const target = Math.max(0, Number(plan.targetCents || 0));
@@ -623,7 +643,7 @@ function dateList(from, to) {
 
 function modalMarkup() {
   if (!modal) return '';
-  if (modal.type === 'auth') return `<div class="modal-backdrop" data-stop><section class="modal compact-modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title" data-stop><div class="modal-head"><div><span class="eyebrow">Solar Flow 账号</span><h2 id="auth-title">${authMode === 'signup' ? '创建账号' : '邮箱登录'}</h2></div><button class="close-button" data-auth-close>×</button></div><form id="auth-form"><label class="single-field">邮箱地址<input name="email" type="email" autocomplete="email" placeholder="name@example.com" required autofocus /></label><label class="single-field">密码<input name="password" type="password" autocomplete="${authMode === 'signup' ? 'new-password' : 'current-password'}" minlength="8" placeholder="至少 8 位" required /></label><p class="form-help">${authMode === 'signup' ? '注册后需要验证邮箱，验证前不会上传账本。' : '使用同一邮箱即可在手机和电脑间同步。'}</p><div class="modal-actions auth-actions"><button type="button" class="setting-action" data-auth-switch>${authMode === 'signup' ? '已有账号？去登录' : '没有账号？创建一个'}</button>${authMode === 'signin' ? '<button type="button" class="setting-action" data-auth-reset>忘记密码？</button>' : ''}</div><div class="modal-actions"><button type="button" class="outline-button" data-auth-close>取消</button><button type="submit" class="primary-button">${authMode === 'signup' ? '创建账号并发送验证邮件' : '登录并继续'}</button></div></form></section></div>`;
+  if (modal.type === 'auth') return `<div class="modal-backdrop" data-stop><section class="modal compact-modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title" data-stop><div class="modal-head"><div><span class="eyebrow">Solar Flow 账号</span><h2 id="auth-title">${authMode === 'signup' ? '创建账号' : '邮箱登录'}</h2></div><button class="close-button" data-auth-close>×</button></div><form id="auth-form"><label class="single-field">邮箱地址<input name="email" type="email" autocomplete="email" placeholder="name@example.com" required autofocus /></label><label class="single-field">密码<input name="password" type="password" autocomplete="${authMode === 'signup' ? 'new-password' : 'current-password'}" minlength="8" placeholder="至少 8 位" required /></label><p class="form-help">${authMode === 'signup' ? '注册后需要验证邮箱，验证前不会上传账本。' : '使用同一邮箱即可在手机和电脑间同步。'}</p><p class="auth-status" data-auth-status role="status" aria-live="polite"></p><div class="modal-actions auth-actions"><button type="button" class="setting-action" data-auth-switch>${authMode === 'signup' ? '已有账号？去登录' : '没有账号？创建一个'}</button>${authMode === 'signin' ? '<button type="button" class="setting-action" data-auth-reset>忘记密码？</button>' : ''}</div><div class="modal-actions"><button type="button" class="outline-button" data-auth-close>取消</button><button type="submit" class="primary-button">${authMode === 'signup' ? '创建账号并发送验证邮件' : '登录并继续'}</button></div></form></section></div>`;
   if (modal.type === 'sync-import') return `<div class="modal-backdrop" data-stop><section class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="sync-import-title" data-stop><div class="modal-head"><div><span class="eyebrow">首次连接 · ${esc(pendingAccountUser?.email || '')}</span><h2 id="sync-import-title">发现这台设备已有账本</h2></div></div><p class="form-help">是否将本机账本合并到这个邮箱账号的云端？现有流水和资金设置会保留；重复流水按记录 ID 合并。选择“只用云端数据”不会删除本机账本。</p><div class="modal-actions"><button type="button" class="outline-button" data-auth-merge-cancel>暂不连接</button><button type="button" class="outline-button" data-auth-merge-cloud>只用云端数据</button><button type="button" class="primary-button" data-auth-merge-local>合并本机账本</button></div></section></div>`;
   if (modal.type === 'assets') return `<div class="modal-backdrop" data-close-modal><section class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="assets-title" data-stop><div class="modal-head"><div><span class="eyebrow">账单与余额对齐</span><h2 id="assets-title">设置总资产基准</h2></div><button class="close-button" data-close-modal>×</button></div><form id="assets-form"><label class="single-field">基准日总资产（元）<input name="amount" type="number" min="0" step="0.01" value="${(sumAssets(state) / 100).toFixed(2)}" required autofocus /></label><label class="single-field">余额截至日期<input name="baselineDate" type="date" value="${today()}" max="${today()}" required /></label><p class="form-help">默认把当前总资产 <strong>${formatMoney(sumAssets(state))}</strong> 设为今天的已结清余额；此后日期的收入和支出会继续调整总资产。若要补算更早的历史流水，请把基准日改到首笔待补流水之前，并填入当日实际余额（例如 7 月 9 日开始的账单，期初 ¥4,000 就设为 7 月 8 日）。基准日当天按“已结清”处理，重复流水不会再次计入。</p><div class="modal-actions"><button type="button" class="outline-button" data-close-modal>取消</button><button type="submit" class="primary-button">保存基准并重算</button></div></form></section></div>`;
   if (modal.type === 'new-ledger') return `<div class="modal-backdrop" data-close-modal><section class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="ledger-title" data-stop><div class="modal-head"><div><span class="eyebrow">独立数据空间</span><h2 id="ledger-title">新建账本</h2></div><button class="close-button" data-close-modal>×</button></div><form id="ledger-form"><label class="single-field">账本名称<input name="name" placeholder="例如：真实记录、旅行测试" maxlength="24" required autofocus /></label><p class="form-help">新账本从 0 开始，不会沿用当前账本的流水、资产或借款。</p><div class="modal-actions"><button type="button" class="outline-button" data-close-modal>取消</button><button type="submit" class="primary-button">创建并切换</button></div></form></section></div>`;
@@ -673,30 +693,31 @@ function importAssetImpact(candidates) {
   return { deltaCents, eligibleCount, hasNewRows };
 }
 
-function messageForAuthError(error) {
-  const messages = {
-    'auth/invalid-email': '邮箱地址格式不正确。',
-    'auth/email-already-in-use': '这个邮箱已经注册，请直接登录。',
-    'auth/invalid-credential': '邮箱或密码不正确。',
-    'auth/user-not-found': '没有找到这个邮箱对应的账号。',
-    'auth/weak-password': '密码强度不足，请换一个更长的密码。',
-    'auth/too-many-requests': '尝试次数过多，请稍后再试。',
-    'auth/network-request-failed': '网络暂时不可用；本机账本仍可离线使用。',
-    'auth/operation-not-allowed': 'Firebase 尚未启用邮箱和密码登录。'
-  };
-  return messages[error?.code] || error?.message || '账号操作失败，请稍后重试。';
-}
-
 async function submitAuth(form) {
   if (!authServices) return notify('云端账号服务尚未配置。', 'error');
   const email = String(new FormData(form).get('email') || '').trim();
   const password = String(new FormData(form).get('password') || '');
-  if (authMode === 'signup' && password.length < 8) return notify('密码请至少使用 8 位。', 'error');
+  const submittedMode = authMode;
+  if (submittedMode === 'signup' && password.length < 8) return notify('密码请至少使用 8 位。', 'error');
+  if (!navigator.onLine) {
+    const status = form.querySelector('[data-auth-status]');
+    if (status) status.textContent = '当前设备处于离线状态；本机账本仍可使用，联网后再登录。';
+    return;
+  }
   const submit = form.querySelector('[type="submit"]');
   submit.disabled = true;
-  submit.textContent = authMode === 'signup' ? '正在创建…' : '正在登录…';
+  submit.textContent = submittedMode === 'signup' ? '正在创建…' : '正在登录…';
+  const status = form.querySelector('[data-auth-status]');
+  if (status) status.textContent = '';
+  const switchButton = form.querySelector('[data-auth-switch]');
+  if (switchButton) switchButton.disabled = true;
+  const progressTimer = setTimeout(() => {
+    if (!form.isConnected || !status) return;
+    status.textContent = '连接时间比平常长，正在等待账号服务器响应。可以检查手机当前网络；本机账本不会受影响。';
+    submit.textContent = '仍在连接…';
+  }, 9000);
   try {
-    if (authMode === 'signup') {
+    if (submittedMode === 'signup') {
       const credential = await firebaseApi.createEmailAccount(authServices.auth, email, password);
       await firebaseApi.sendVerificationEmail(credential.user);
       modal = null;
@@ -714,9 +735,22 @@ async function submitAuth(form) {
       }
     }
   } catch (error) {
+    const message = messageForAuthError(error);
     if (!modal && !syncEngine) modal = { type: 'auth' };
-    render();
-    notify(messageForAuthError(error), 'error');
+    if (!form.isConnected && modal) render();
+    const activeForm = document.querySelector('#auth-form');
+    const activeStatus = activeForm?.querySelector('[data-auth-status]');
+    const activeSubmit = activeForm?.querySelector('[type="submit"]');
+    const activeSwitch = activeForm?.querySelector('[data-auth-switch]');
+    if (activeStatus) activeStatus.textContent = message;
+    if (activeSubmit) {
+      activeSubmit.disabled = false;
+      activeSubmit.textContent = submittedMode === 'signup' ? '创建账号并发送验证邮件' : '登录并继续';
+    }
+    if (activeSwitch) activeSwitch.disabled = false;
+    notify(message, 'error');
+  } finally {
+    clearTimeout(progressTimer);
   }
 }
 

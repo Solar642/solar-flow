@@ -122,6 +122,33 @@ export function robustWeightedAverage(values, alpha = 0.35) {
   return Math.round(center * 0.55 + smooth * 0.45);
 }
 
+export function emergencyReserveRecommendation(transactions, anchor = dateString(new Date())) {
+  const date = localDate(anchor);
+  const latestClosedMonth = new Date(date.getFullYear(), date.getMonth() - 1, 1, 12);
+  const monthKeys = Array.from({ length: 6 }, (_, index) => monthString(new Date(latestClosedMonth.getFullYear(), latestClosedMonth.getMonth() - 5 + index, 1, 12)));
+  const essential = new Set(['food', 'home', 'transport', 'communication', 'health']);
+  const observed = monthKeys.map(key => {
+    const rows = transactions.filter(txn => txn.date.startsWith(key) && ['income', 'expense'].includes(txn.direction));
+    return {
+      rows,
+      essentialExpense: rows.filter(txn => txn.direction === 'expense' && essential.has(txn.category)).reduce((sum, txn) => sum + Number(txn.amountCents || 0), 0),
+      totalExpense: rows.filter(txn => txn.direction === 'expense').reduce((sum, txn) => sum + Number(txn.amountCents || 0), 0)
+    };
+  }).filter(month => month.totalExpense > 0);
+
+  if (!observed.length) return { targetCents: 0, monthlyBaselineCents: 0, sampleMonths: 0, provisional: true, basis: 'essential' };
+  const hasEssentialSpending = observed.some(month => month.essentialExpense > 0);
+  const monthlyValues = observed.map(month => hasEssentialSpending ? month.essentialExpense : month.totalExpense);
+  const monthlyBaselineCents = observed.length >= 3 ? robustWeightedAverage(monthlyValues) : median(monthlyValues);
+  return {
+    targetCents: Math.round(monthlyBaselineCents * 3),
+    monthlyBaselineCents,
+    sampleMonths: observed.length,
+    provisional: observed.length < 3,
+    basis: hasEssentialSpending ? 'essential' : 'total'
+  };
+}
+
 export function savingsInsight(transactions, context = {}, anchor = dateString(new Date())) {
   const date = localDate(anchor);
   const latestClosedMonth = new Date(date.getFullYear(), date.getMonth() - 1, 1, 12);
