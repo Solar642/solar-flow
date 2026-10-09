@@ -1,0 +1,48 @@
+name: Bug report
+description: Report a reproducible problem in Solar Flow
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请勿上传真实账单、邮箱、密码、认证链接、Firebase 文档或含个人交易的截图。请改用虚构数据描述。
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: 页面底部或 Git commit identifier
+      placeholder: main / commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: device
+    attributes:
+      label: Environment
+      options:
+        - Desktop browser
+        - Android Chrome
+        - Android Edge
+        - iPhone/iPad Safari
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: Use synthetic dates, amounts, and merchant names only.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true

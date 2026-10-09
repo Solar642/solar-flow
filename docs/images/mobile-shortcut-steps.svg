@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="620" viewBox="0 0 1440 620" role="img" aria-labelledby="title desc">
+  <title id="title">Solar Flow 手机主屏幕快捷方式添加步骤</title>
+  <desc id="desc">Android Chrome、Android Edge 和 iPhone Safari 分别通过浏览器菜单把 Solar Flow 添加到主屏幕。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#eef7f2"/><stop offset="1" stop-color="#fff4df"/></linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ffc863"/><stop offset="1" stop-color="#f3a437"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#16342e" flood-opacity=".12"/></filter>
+    <style>
+      text{font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif;fill:#142723}
+      .muted{fill:#72827b}.small{font-size:18px}.label{font-size:21px;font-weight:700}.title{font-size:34px;font-weight:700}
+    </style>
+  </defs>
+  <rect width="1440" height="620" rx="28" fill="url(#bg)"/>
+  <text x="64" y="70" class="title">把 Solar Flow 放到手机桌面</text>
+  <text x="64" y="108" class="small muted">先在浏览器打开 https://solar642.github.io/solar-flow/，再按设备选择一条路径</text>
+
+  <!-- Android Chrome -->
+  <g filter="url(#shadow)"><rect x="48" y="145" width="430" height="420" rx="25" fill="#fff"/></g>
+  <rect x="48" y="145" width="430" height="9" rx="5" fill="#159b80"/>
+  <text x="76" y="194" class="label">Android · Chrome</text>
+  <text x="76" y="224" class="small muted">推荐：安装为 Web App</text>
+  <g>
+    <circle cx="105" cy="292" r="24" fill="#e6f5ef"/><text x="98" y="300" class="label">1</text>
+    <rect x="145" y="266" width="285" height="54" rx="14" fill="#f4f7f4" stroke="#d8e3dc"/>
+    <text x="165" y="300" class="small">打开 Solar Flow 网页</text>
+    <path d="M105 319v27" stroke="#159b80" stroke-width="3"/><path d="m98 338 7 9 7-9" fill="none" stroke="#159b80" stroke-width="3"/>
+    <circle cx="105" cy="385" r="24" fill="#e6f5ef"/><text x="98" y="393" class="label">2</text>
+    <rect x="145" y="359" width="285" height="54" rx="14" fill="#f4f7f4" stroke="#d8e3dc"/>
+    <text x="165" y="393" class="small">⋮  →  安装应用</text>
+    <path d="M105 412v27" stroke="#159b80" stroke-width="3"/><path d="m98 431 7 9 7-9" fill="none" stroke="#159b80" stroke-width="3"/>
+    <circle cx="105" cy="478" r="24" fill="#fff1dc"/><text x="98" y="486" class="label">3</text>
+    <rect x="145" y="452" width="285" height="54" rx="14" fill="#fff9ef" stroke="#f0ddb9"/>
+    <text x="165" y="486" class="small">确认安装 → 桌面图标</text>
+  </g>
+
+  <!-- Android Edge -->
+  <g filter="url(#shadow)"><rect x="505" y="145" width="430" height="420" rx="25" fill="#fff"/></g>
+  <rect x="505" y="145" width="430" height="9" rx="5" fill="#159b80"/>
+  <text x="533" y="194" class="label">Android · Edge</text>
+  <text x="533" y="224" class="small muted">菜单文字和图标会随版本变化</text>
+  <g>
+    <circle cx="562" cy="292" r="24" fill="#e6f5ef"/><text x="555" y="300" class="label">1</text>
+    <rect x="602" y="266" width="285" height="54" rx="14" fill="#f4f7f4" stroke="#d8e3dc"/>
+    <text x="622" y="300" class="small">打开 Solar Flow 网页</text>
+    <path d="M562 319v27" stroke="#159b80" stroke-width="3"/><path d="m555 338 7 9 7-9" fill="none" stroke="#159b80" stroke-width="3"/>
+    <circle cx="562" cy="385" r="24" fill="#e6f5ef"/><text x="555" y="393" class="label">2</text>
+    <rect x="602" y="359" width="285" height="54" rx="14" fill="#f4f7f4" stroke="#d8e3dc"/>
+    <text x="622" y="393" class="small">… / ≡  →  添加到手机</text>
+    <path d="M562 412v27" stroke="#159b80" stroke-width="3"/><path d="m555 431 7 9 7-9" fill="none" stroke="#159b80" stroke-width="3"/>
+    <circle cx="562" cy="478" r="24" fill="#fff1dc"/><text x="555" y="486" class="label">3</text>
+    <rect x="602" y="452" width="285" height="54" rx="14" fill="#fff9ef" stroke="#f0ddb9"/>
+    <text x="622" y="486" class="small">添加/安装 → 桌面图标</text>
+  </g>
+
+  <!-- iOS Safari -->
+  <g filter="url(#shadow)"><rect x="962" y="145" width="430" height="420" rx="25" fill="#fff"/></g>
+  <rect x="962" y="145" width="430" height="9" rx="5" fill="#efa83e"/>
+  <text x="990" y="194" class="label">iPhone / iPad · Safari</text>
+  <text x="990" y="224" class="small muted">iOS 使用 Safari 添加到主屏幕</text>
+  <g>
+    <circle cx="1019" cy="292" r="24" fill="#e6f5ef"/><text x="1012" y="300" class="label">1</text>
+    <rect x="1059" y="266" width="285" height="54" rx="14" fill="#f4f7f4" stroke="#d8e3dc"/>
+    <text x="1079" y="300" class="small">Safari 打开 Solar Flow</text>
+    <path d="M1019 319v27" stroke="#159b80" stroke-width="3"/><path d="m1012 338 7 9 7-9" fill="none" stroke="#159b80" stroke-width="3"/>
+    <circle cx="1019" cy="385" r="24" fill="#e6f5ef"/><text x="1012" y="393" class="label">2</text>
+    <rect x="1059" y="359" width="285" height="54" rx="14" fill="#f4f7f4" stroke="#d8e3dc"/>
+    <text x="1079" y="393" class="small">分享 ↑  →  添加到主屏幕</text>
+    <path d="M1019 412v27" stroke="#159b80" stroke-width="3"/><path d="m1012 431 7 9 7-9" fill="none" stroke="#159b80" stroke-width="3"/>
+    <circle cx="1019" cy="478" r="24" fill="#fff1dc"/><text x="1012" y="486" class="label">3</text>
+    <rect x="1059" y="452" width="285" height="54" rx="14" fill="#fff9ef" stroke="#f0ddb9"/>
+    <text x="1079" y="486" class="small">可选 Web App → 添加</text>
+  </g>
+  <text x="64" y="594" class="small muted">提示：Edge 的快捷方式图标可能带浏览器标识；若安装项不可见或图标异常，可改用 Android Chrome。旧图标需删除后重新添加。</text>
+</svg>
