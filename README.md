@@ -47,6 +47,10 @@ GitHub Pages 仅托管静态网页。跨设备同步使用 Firebase Authenticati
 
 本地运行前复制 `.env.example` 为 `.env.local` 并填写同一组 Firebase Web app 配置。
 
+## 许可证
+
+此仓库公开可见，但尚未指定开源许可证；在许可证确定前，公开可访问网页不代表代码可自由复制、修改或再发布。
+
 ## 数据原则
 
 - 金额按“分”存储，避免浮点误差。
