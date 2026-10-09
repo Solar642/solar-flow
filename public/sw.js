@@ -1,14 +1,15 @@
-const CACHE = 'solar-flow-v2';
+const CACHE = 'solar-flow-v3';
 const APP_SHELL = [
   '/solar-flow/',
   '/solar-flow/index.html',
   '/solar-flow/manifest.webmanifest',
-  '/solar-flow/favicon.svg',
-  '/solar-flow/favicon.svg?v=2',
   '/solar-flow/icon-192.png',
+  '/solar-flow/icon-192.png?v=3',
   '/solar-flow/icon-512.png',
+  '/solar-flow/icon-512.png?v=3',
   '/solar-flow/icon-maskable-512.png',
   '/solar-flow/apple-touch-icon.png',
+  '/solar-flow/apple-touch-icon.png?v=3',
 ];
 
 self.addEventListener('install', event => {

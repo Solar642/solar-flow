@@ -12,6 +12,7 @@ function pngDimensions(path) {
 }
 
 test('PWA manifest declares installable any-purpose and maskable icons', () => {
+  assert.ok(manifest.icons.every(icon => icon.type === 'image/png'));
   assert.ok(manifest.icons.some(icon => icon.sizes === '192x192' && icon.purpose === 'any'));
   assert.ok(manifest.icons.some(icon => icon.sizes === '512x512' && icon.purpose === 'any'));
   assert.ok(manifest.icons.some(icon => icon.sizes === '512x512' && icon.purpose === 'maskable'));
@@ -25,12 +26,15 @@ test('PWA manifest declares installable any-purpose and maskable icons', () => {
 
 test('iOS home-screen icon is linked and precached with the PWA shell', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
   const serviceWorker = readFileSync(new URL('sw.js', publicUrl), 'utf8');
   assert.match(html, /rel="apple-touch-icon"[^>]+apple-touch-icon\.png/);
   assert.match(html, /apple-mobile-web-app-title" content="Solar Flow/);
+  assert.match(html, /rel="icon" type="image\/png"[^>]+icon-192\.png\?v=3/);
+  assert.match(app, /class="brand-mark" src="\/solar-flow\/icon-512\.png\?v=3"/);
   assert.deepEqual(pngDimensions('apple-touch-icon.png'), { width: 180, height: 180 });
-  assert.match(serviceWorker, /solar-flow-v2/);
-  assert.match(serviceWorker, /solar-flow\/favicon\.svg\?v=2/);
+  assert.match(serviceWorker, /solar-flow-v3/);
+  assert.match(serviceWorker, /solar-flow\/icon-512\.png\?v=3/);
   assert.match(serviceWorker, /solar-flow\/icon-maskable-512\.png/);
-  assert.match(serviceWorker, /solar-flow\/apple-touch-icon\.png/);
+  assert.match(serviceWorker, /solar-flow\/apple-touch-icon\.png\?v=3/);
 });
