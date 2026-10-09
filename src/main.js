@@ -22,6 +22,7 @@ let pendingAccountUser = null;
 let authMode = 'signin';
 let syncStatus = { status: firebaseIsConfigured() ? 'signed-out' : 'unconfigured', message: '' };
 let view = 'overview';
+let settingsDrawerOpen = false;
 let period = 'month';
 let transactionFilter = 'all';
 let chartMode = 'line';
@@ -264,7 +265,7 @@ function animateCounters() {
 }
 
 function syncModalViewportLock() {
-  if (modal && lockedModalScrollY === null) {
+  if ((modal || settingsDrawerOpen) && lockedModalScrollY === null) {
     lockedModalScrollY = window.scrollY;
     document.body.classList.add('modal-open');
     document.body.style.top = `-${lockedModalScrollY}px`;
@@ -330,6 +331,7 @@ function render({ preserveScroll = false, animate = true } = {}) {
         <div class="page-body ${animate ? '' : 'no-page-animation'}">${view === 'overview' ? overview() : view === 'transactions' ? transactionsPage() : view === 'review' ? reviewPage() : view === 'plan' ? planPage() : view === 'obligations' ? obligationsPage() : view === 'ledgers' ? ledgersPage() : settingsPage()}</div>
       </main>
     </div>
+    ${settingsDrawerOpen ? settingsDrawerMarkup() : ''}
     ${modalMarkup()}
   `;
   restoreModalFormDraft(modalDraft, nextModalKey);
@@ -416,10 +418,10 @@ function sidebar() {
     ['plan', '资金分配'],
     ['obligations', '借款与信用'],
     ['ledgers', '账本管理'],
-    ['settings', '设置与同步']
+    ['settings', '设置']
   ];
   return `<aside class="sidebar">
-    <div class="brand"><img class="brand-mark" src="/solar-flow/icon-512.png?v=3" alt="" aria-hidden="true" /><div><strong>Solar Flow</strong><small>让钱流向生活</small></div></div>
+    <button class="brand" type="button" data-open-settings-drawer aria-label="打开设置"><img class="brand-mark" src="/solar-flow/icon-512.png?v=3" alt="" aria-hidden="true" /><span><strong>Solar Flow</strong><small>让钱流向生活</small></span></button>
     <nav class="nav-list" aria-label="主导航">${items.map(([id, label]) => `<button class="nav-item ${view === id ? 'active' : ''}" data-nav="${id}"><span class="nav-icon">${categoryGlyph(id)}</span><span>${label}</span></button>`).join('')}</nav>
     <div class="sidebar-bottom">
       <div class="offline-pill"><i></i><span>本机离线可用</span></div>
@@ -429,7 +431,7 @@ function sidebar() {
 }
 
 function topbar() {
-  const names = { overview: '总览', transactions: '全部流水', review: '收支复盘', plan: '资金分配', obligations: '借款与信用', ledgers: '账本管理', settings: '设置与同步' };
+  const names = { overview: '总览', transactions: '全部流水', review: '收支复盘', plan: '资金分配', obligations: '借款与信用', ledgers: '账本管理', settings: '设置' };
   const ledger = state.ledgers?.find(item => item.id === state.activeLedgerId);
   return `<header class="topbar"><div><p class="eyebrow">${today()} · ${navigator.onLine ? '在线' : '离线'} · ${esc(ledger?.name || '我的账本')}</p><h1>${names[view]}</h1></div><div class="top-actions"><button class="primary-button import-button" data-open-import title="导入账单">⇧ <span>导入账单</span></button><button class="outline-button quick-action" data-open-quick>＋ 记一笔</button></div></header>`;
 }
@@ -696,16 +698,24 @@ function ledgersPage() {
   return `<section class="section-head page-title"><div><h2>账本管理</h2></div><button class="primary-button" data-new-ledger>＋ 新建账本</button></section><div class="ledger-hero panel-card"><div><span class="eyebrow">当前账本</span><strong>${esc(current?.name || '我的账本')}</strong><p>每个账本的流水、总资产、资金分配和借款清单彼此独立。</p></div><div class="ledger-actions"><button class="outline-button" data-set-assets>设置总资产</button><button class="outline-button" data-undo ${historyCount ? '' : 'disabled'}>↶ 撤销上一步</button><button class="danger-button" data-clear-ledger>清空当前账本</button></div></div><section class="panel-card full-list ledger-list"><div class="chart-title"><div><strong>我的账本</strong><span>${ledgers.length} 个 · 撤销记录 ${historyCount}/30</span></div></div>${ledgers.map(ledger => `<div class="ledger-row ${ledger.id === state.activeLedgerId ? 'active' : ''}"><div class="ledger-mark">▤</div><div class="transaction-main"><strong>${esc(ledger.name)}</strong><span>${ledger.id === state.activeLedgerId ? '正在使用' : '独立数据空间'} · ${ledger.transactions?.length || 0} 条流水 · 总资产 ${formatMoney(ledger.id === state.activeLedgerId ? sumAssets(state) : ledger.totalAssetsCents || 0)}</span></div>${ledger.id === state.activeLedgerId ? '<span class="active-badge">当前</span>' : `<button class="more-button" data-switch-ledger="${ledger.id}">切换</button>`}</div>`).join('')}</section>`;
 }
 
+function settingsAccountContent() {
+  if (!firebaseIsConfigured()) return `<p class="settings-copy">云端账号尚未配置，账本会继续保存在本机。</p><button class="outline-button" disabled>云同步不可用</button>`;
+  if (!signedInUser) return `<p class="settings-copy">使用同一个邮箱在手机和电脑登录。首次同步本机账本前会先征求你的确认。</p><button class="primary-button" data-auth-open>邮箱登录 / 注册</button>`;
+  if (!signedInUser.emailVerified) return `<p class="settings-copy">请先验证 <strong>${esc(signedInUser.email)}</strong>，验证后才会连接云端；本机记账不受影响。</p><div class="account-actions"><button class="outline-button" data-auth-resend>重新发送验证邮件</button><button class="setting-action" data-auth-signout>退出账号</button></div>`;
+  return `<p class="settings-copy">已登录 <strong>${esc(signedInUser.email)}</strong>。流水和账本设置会同步，计划封面保留在本机。</p><div class="account-actions"><button class="outline-button" data-sync-now>立即同步</button><button class="setting-action" data-auth-signout>退出登录</button></div>`;
+}
+
+function settingsSyncError() {
+  return syncStatus.status === 'error' && syncStatus.message ? `<p class="sync-error">${esc(syncStatus.message)}</p>` : '';
+}
+
 function settingsPage() {
-  const accountContent = !firebaseIsConfigured()
-    ? `<p class="settings-copy">邮箱登录和云同步代码已准备，等配置 Firebase 项目后启用。账单数据目前仍只保存在这台设备。</p><button class="outline-button" disabled>等待云端项目配置</button>`
-    : !signedInUser
-      ? `<p class="settings-copy">用同一个邮箱账号登录手机和电脑。每个账号的数据相互隔离；本机现有账本首次同步前会先征求你的确认。</p><button class="primary-button" data-auth-open>邮箱登录 / 注册</button>`
-      : !signedInUser.emailVerified
-        ? `<p class="settings-copy">验证邮件已发送至 <strong>${esc(signedInUser.email)}</strong>。验证完成后才会连接云端；离线记账仍可继续。</p><div class="account-actions"><button class="outline-button" data-auth-resend>重新发送验证邮件</button><button class="setting-action" data-auth-signout>退出账号</button></div>`
-        : `<p class="settings-copy">已登录 <strong>${esc(signedInUser.email)}</strong>。账本按账号隔离；云端未连接时，记录仍会保存在本机并等待同步。</p><div class="account-actions"><button class="outline-button" data-sync-now>立即同步</button><button class="setting-action" data-auth-signout>退出登录</button></div>`;
-  const errorMessage = syncStatus.status === 'error' && syncStatus.message ? `<p class="sync-error">${esc(syncStatus.message)}</p>` : '';
-  return `<section class="section-head page-title"><div><h2>设置与同步</h2></div></section><div class="settings-grid"><section class="panel-card settings-card"><div class="chart-title"><div><strong>多设备同步</strong><span>手机、电脑使用同一个邮箱</span></div><span class="sync-state ${syncStatus.status}">${describeSyncStatus()}</span></div><div class="sync-visual"><div class="device">手机</div><div class="sync-line"><i></i><span>⇄</span><i></i></div><div class="device">电脑</div></div>${accountContent}${errorMessage}</section><section class="panel-card settings-card"><div class="chart-title"><div><strong>数据安全</strong><span>本机优先，随时可带走</span></div><span class="safe-badge">安全</span></div><div class="settings-actions"><button class="setting-action" data-export>导出本机账本 <span>↓</span></button><button class="setting-action" data-clear-ledger>清空当前账本 <span>⌫</span></button><button class="setting-action import-setting" data-open-import>导入账单 <span>⇧</span></button><button class="setting-action" data-nav="ledgers">管理账本 <span>→</span></button></div></section></div><div class="data-contract panel-card"><span class="eyebrow">数据规则</span><div class="contract-grid"><p><strong>总资产单一口径</strong>不建立微信、支付宝或银行卡账户。</p><p><strong>收入支出清晰</strong>转账类账单自动排除，不污染统计。</p><p><strong>账本彼此独立</strong>每本账保存自己的流水和资金计划。</p><p><strong>撤销可恢复</strong>每个账本保留最近 30 次关键修改。</p></div></div>`;
+  const accountContent = settingsAccountContent();
+  return `<section class="section-head page-title"><div><h2>设置</h2></div></section><div class="settings-grid"><section class="panel-card settings-card"><div class="chart-title"><div><strong>账户与同步</strong><span>同一邮箱连接手机和电脑</span></div><span class="sync-state ${syncStatus.status}">${describeSyncStatus()}</span></div><div class="sync-visual"><div class="device">手机</div><div class="sync-line"><i></i><span>⇄</span><i></i></div><div class="device">电脑</div></div>${accountContent}${settingsSyncError()}</section><section class="panel-card settings-card"><div class="chart-title"><div><strong>数据管理</strong><span>导入、导出与账本</span></div><span class="safe-badge">本机优先</span></div><div class="settings-actions"><button class="setting-action" data-export>导出当前账本 <span>↓</span></button><button class="setting-action" data-clear-ledger>清空当前账本 <span>⌫</span></button><button class="setting-action import-setting" data-open-import>导入账单 <span>⇧</span></button><button class="setting-action" data-nav="ledgers">管理账本 <span>→</span></button></div></section></div><section class="panel-card settings-preferences"><div class="chart-title"><div><strong>偏好设置</strong><span>语言和显示选项</span></div></div><div class="setting-static-row"><span>界面语言</span><strong>简体中文</strong></div></section><div class="data-contract panel-card"><span class="eyebrow">数据规则</span><div class="contract-grid"><p><strong>总资产单一口径</strong>不建立微信、支付宝或银行卡账户。</p><p><strong>收入支出清晰</strong>转账类账单自动排除，不污染统计。</p><p><strong>账本彼此独立</strong>每本账保存自己的流水和资金计划。</p><p><strong>撤销可恢复</strong>每个账本保留最近 30 次关键修改。</p></div></div>`;
+}
+
+function settingsDrawerMarkup() {
+  return `<div class="settings-scrim" data-close-settings><aside class="settings-drawer" role="dialog" aria-modal="true" aria-labelledby="mobile-settings-title" data-stop><header class="settings-drawer-head"><div><span class="eyebrow">SOLAR FLOW</span><h2 id="mobile-settings-title">设置</h2></div><button class="close-button" type="button" data-close-settings aria-label="关闭设置">×</button></header><div class="settings-drawer-body"><section class="panel-card settings-card drawer-settings-card"><div class="chart-title"><div><strong>账户与同步</strong><span>一份账本，手机电脑都能用</span></div><span class="sync-state ${syncStatus.status}">${describeSyncStatus()}</span></div>${settingsAccountContent()}${settingsSyncError()}</section><section class="panel-card settings-card drawer-settings-card"><div class="chart-title"><div><strong>数据管理</strong><span>账本数据保存在本机，也可导入导出</span></div></div><div class="settings-actions"><button class="setting-action" data-export>导出当前账本 <span>↓</span></button><button class="setting-action import-setting" data-open-import>导入账单 <span>⇧</span></button><button class="setting-action" data-nav="ledgers">管理账本 <span>→</span></button><button class="setting-action" data-clear-ledger>清空当前账本 <span>⌫</span></button></div></section><section class="panel-card settings-card drawer-settings-card"><div class="chart-title"><div><strong>偏好设置</strong><span>语言和显示选项</span></div></div><div class="setting-static-row"><span>界面语言</span><strong>简体中文</strong></div></section><button class="drawer-full-settings" type="button" data-nav="settings">打开完整设置 <span>→</span></button></div></aside></div>`;
 }
 
 function periodLabel(value) { return ({ day: '今天', week: '近 7 天', month: '本月', quarter: '近 3 个月', half: '近 6 个月', year: '本年度' }[value] || value); }
@@ -830,7 +840,11 @@ async function submitAuth(form) {
 }
 
 function bindEvents() {
-  document.querySelectorAll('[data-nav]').forEach(button => button.addEventListener('click', () => { view = button.dataset.nav; render(); }));
+  document.querySelectorAll('[data-open-settings-drawer]').forEach(button => button.addEventListener('click', () => { settingsDrawerOpen = true; render(); }));
+  document.querySelectorAll('[data-close-settings]').forEach(button => button.addEventListener('click', event => {
+    if (event.target === button || button.classList.contains('close-button')) { settingsDrawerOpen = false; render(); }
+  }));
+  document.querySelectorAll('[data-nav]').forEach(button => button.addEventListener('click', () => { view = button.dataset.nav; settingsDrawerOpen = false; render(); }));
   document.querySelectorAll('[data-period]').forEach(button => button.addEventListener('click', () => { period = button.dataset.period; render(); }));
   document.querySelectorAll('[data-chart-mode]').forEach(button => button.addEventListener('click', () => { chartMode = button.dataset.chartMode; render(); }));
   document.querySelectorAll('[data-review-scope]').forEach(button => button.addEventListener('click', () => { reviewScope = button.dataset.reviewScope; reviewAnchor = today(); selectedReviewDay = ''; render(); }));
@@ -849,7 +863,7 @@ function bindEvents() {
     card.addEventListener('click', open);
     card.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
   });
-  document.querySelectorAll('[data-open-import]').forEach(button => button.addEventListener('click', () => { modal = { type: 'import' }; importSession = null; render(); }));
+  document.querySelectorAll('[data-open-import]').forEach(button => button.addEventListener('click', () => { settingsDrawerOpen = false; modal = { type: 'import' }; importSession = null; render(); }));
   document.querySelectorAll('[data-close-modal]').forEach(button => button.addEventListener('click', event => { if (event.target === button || button.classList.contains('close-button')) { modal = null; importSession = null; render(); } }));
   document.querySelectorAll('[data-stop]').forEach(node => node.addEventListener('click', event => event.stopPropagation()));
   const quickForm = document.querySelector('#quick-form');
@@ -918,7 +932,7 @@ function bindEvents() {
   document.querySelectorAll('[data-clear-ledger]').forEach(button => button.addEventListener('click', clearLedger));
   const exportButton = document.querySelector('[data-export]');
   if (exportButton) exportButton.addEventListener('click', exportData);
-  document.querySelectorAll('[data-auth-open]').forEach(button => button.addEventListener('click', () => { authMode = 'signin'; modal = { type: 'auth' }; render(); }));
+  document.querySelectorAll('[data-auth-open]').forEach(button => button.addEventListener('click', () => { settingsDrawerOpen = false; authMode = 'signin'; modal = { type: 'auth' }; render(); }));
   document.querySelectorAll('[data-auth-close]').forEach(button => button.addEventListener('click', () => { modal = null; render(); }));
   document.querySelectorAll('[data-auth-switch]').forEach(button => button.addEventListener('click', () => { authMode = authMode === 'signup' ? 'signin' : 'signup'; render(); }));
   const authForm = document.querySelector('#auth-form');
@@ -1112,6 +1126,13 @@ function exportData() {
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `solar-flow-backup-${today()}.json`; anchor.click(); URL.revokeObjectURL(url); notify('本机账本备份已导出');
 }
+
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && settingsDrawerOpen && !modal) {
+    settingsDrawerOpen = false;
+    render();
+  }
+});
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/solar-flow/sw.js').catch(() => {});
 render();
