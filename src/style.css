@@ -618,3 +618,12 @@ body.modal-open { position:fixed; inset-inline:0; width:100%; overflow:hidden; }
   .auth-modal .modal-actions:last-child button { width:100%; }
   .sync-state { font-size:9px; }
 }
+
+@media (max-width:760px) {
+  .nav-item[data-nav="settings"] {
+    grid-column:1 / -1;
+    justify-content:center;
+    border-color:rgba(21,155,126,.16);
+    background:rgba(21,155,126,.045);
+  }
+}

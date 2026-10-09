@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { initialState } from '../src/model.js';
-import { materializeRecords, prepareLocalMerge, reconcileRecordMaps, stampLocalChanges, stateRecords } from '../src/sync.js';
+import {
+  materializeRecords, prepareLocalMerge, reconcileRecordMaps, stampLocalChanges, stateRecords,
+  startCloudSync, SYNC_CONNECT_TIMEOUT_MESSAGE
+} from '../src/sync.js';
 
 function addTransaction(state, transaction) {
   state.transactions.push(transaction);
@@ -69,4 +72,57 @@ test('a newer tombstone removes a previously synced transaction', () => {
   const local = stampLocalChanges(cleared, remote, '2026-10-09T10:05:00.000Z');
   const merged = reconcileRecordMaps(local, remote);
   assert.equal(materializeRecords(cleared, merged).transactions.length, 0);
+});
+
+test('cloud connection timeout is visible and manual retry reconnects the listener', async () => {
+  const originalWindow = globalThis.window;
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  globalThis.window = { addEventListener() {}, removeEventListener() {} };
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { onLine: true } });
+
+  const subscriptions = [];
+  const statuses = [];
+  let unsubscribed = 0;
+  const firestore = {
+    collection: () => ({}),
+    doc: (_records, id) => ({ id }),
+    onSnapshot: (_records, onNext, onError) => {
+      subscriptions.push({ onNext, onError });
+      return () => { unsubscribed += 1; };
+    },
+    runTransaction: async (_db, operation) => operation({
+      get: async () => ({ exists: () => false }),
+      set() {}
+    })
+  };
+  const state = initialState();
+  const engine = startCloudSync({}, 'test-user', {
+    getState: () => state,
+    setState: next => Object.assign(state, next),
+    persistLocal() {},
+    onStatus: status => statuses.push(status),
+    firestore,
+    connectionTimeoutMs: 5
+  });
+
+  try {
+    await new Promise(resolve => setTimeout(resolve, 15));
+    assert.equal(statuses.at(-1).status, 'error');
+    assert.equal(statuses.at(-1).message, SYNC_CONNECT_TIMEOUT_MESSAGE);
+
+    engine.retry();
+    assert.equal(statuses.at(-1).status, 'connecting');
+    assert.equal(subscriptions.length, 2);
+    assert.ok(unsubscribed >= 1);
+
+    subscriptions.at(-1).onNext({ docs: [], metadata: { fromCache: false } });
+    await new Promise(resolve => setTimeout(resolve, 15));
+    assert.equal(statuses.at(-1).status, 'synced');
+  } finally {
+    engine.stop();
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+    if (originalNavigator) Object.defineProperty(globalThis, 'navigator', originalNavigator);
+    else delete globalThis.navigator;
+  }
 });

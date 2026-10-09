@@ -9,6 +9,9 @@ const CHILD_FIELD = {
   importBatch: 'importBatches'
 };
 
+export const SYNC_CONNECT_TIMEOUT_MS = 15_000;
+export const SYNC_CONNECT_TIMEOUT_MESSAGE = '云端连接超时（15 秒无响应）。本机记录已保留，请检查网络后点“立即同步”重试。';
+
 const encode = value => encodeURIComponent(String(value ?? ''));
 const keyFor = (kind, ledgerId = '', id = '') => [kind, ledgerId, id].map(encode).join('~');
 const signature = record => record.deleted ? 'deleted' : JSON.stringify(record.data ?? null);
@@ -204,8 +207,12 @@ function sameMap(a, b) {
   return true;
 }
 
-export function startCloudSync(db, uid, { getState, setState, persistLocal, onStatus, onRemoteState }) {
-  const recordsRef = collection(db, 'users', uid, 'records');
+export function startCloudSync(db, uid, {
+  getState, setState, persistLocal, onStatus, onRemoteState,
+  connectionTimeoutMs = SYNC_CONNECT_TIMEOUT_MS,
+  firestore = { collection, doc, onSnapshot, runTransaction }
+}) {
+  const recordsRef = firestore.collection(db, 'users', uid, 'records');
   let remoteRecords = new Map();
   let previousRecords = stateRecords(getState());
   let pendingRecords = new Map();
@@ -214,8 +221,15 @@ export function startCloudSync(db, uid, { getState, setState, persistLocal, onSt
   let writing = false;
   let writeRequested = false;
   let unsubscribe = () => {};
+  let connectionTimer = null;
+  let connectionTimedOut = false;
+  let listenerGeneration = 0;
 
   const report = (status, message = '') => onStatus?.({ status, message });
+  const clearConnectionTimer = () => {
+    if (connectionTimer !== null) clearTimeout(connectionTimer);
+    connectionTimer = null;
+  };
 
   async function pushLocalWinners() {
     if (stopped || !serverReady) return;
@@ -235,9 +249,9 @@ export function startCloudSync(db, uid, { getState, setState, persistLocal, onSt
       const chunk = changes.slice(start, start + 12);
       await Promise.all(chunk.map(async record => {
         pendingRecords.set(record.key, record);
-        const ref = doc(recordsRef, record.key);
+        const ref = firestore.doc(recordsRef, record.key);
         try {
-          const winner = await runTransaction(db, async transaction => {
+          const winner = await firestore.runTransaction(db, async transaction => {
             const snapshot = await transaction.get(ref);
             const current = snapshot.exists() ? { key: record.key, ...snapshot.data() } : null;
             if (recordCompare(record, current) > 0) {
@@ -266,33 +280,62 @@ export function startCloudSync(db, uid, { getState, setState, persistLocal, onSt
     }
   }
 
-  const retry = () => { void pushLocalWinners(); };
+  function attachListener() {
+    if (stopped) return;
+    unsubscribe();
+    clearConnectionTimer();
+    serverReady = false;
+    connectionTimedOut = false;
+    const generation = ++listenerGeneration;
+    report(navigator.onLine ? 'connecting' : 'offline');
+    connectionTimer = setTimeout(() => {
+      if (stopped || generation !== listenerGeneration || serverReady) return;
+      if (!navigator.onLine) { report('offline'); return; }
+      connectionTimedOut = true;
+      report('error', SYNC_CONNECT_TIMEOUT_MESSAGE);
+    }, connectionTimeoutMs);
+
+    unsubscribe = firestore.onSnapshot(recordsRef, snapshot => {
+      if (stopped || generation !== listenerGeneration) return;
+      remoteRecords = new Map(snapshot.docs.map(item => [item.id, { key: item.id, ...item.data() }]));
+      for (const [key, pending] of pendingRecords) {
+        const remote = remoteRecords.get(key);
+        if (remote && recordCompare(remote, pending) >= 0) pendingRecords.delete(key);
+      }
+      if (!snapshot.metadata?.fromCache) {
+        serverReady = true;
+        connectionTimedOut = false;
+        clearConnectionTimer();
+      }
+
+      const local = stateRecords(getState());
+      const mergedRecords = reconcileRecordMaps(local, remoteRecords);
+      const mergedState = materializeRecords(getState(), mergedRecords);
+      const mergedStateRecords = stateRecords(mergedState);
+      if (!sameMap(local, mergedStateRecords)) {
+        setState(mergedState);
+        persistLocal();
+        onRemoteState?.();
+      }
+      previousRecords = mergedStateRecords;
+      if (serverReady) void pushLocalWinners();
+      else if (connectionTimedOut) report('error', SYNC_CONNECT_TIMEOUT_MESSAGE);
+      else report(navigator.onLine ? 'connecting' : 'offline');
+    }, error => {
+      if (stopped || generation !== listenerGeneration) return;
+      clearConnectionTimer();
+      report('error', error?.message || '无法读取云端账本；本机数据仍已保存。');
+    });
+  }
+
+  const retry = () => {
+    if (!navigator.onLine) { report('offline'); return; }
+    attachListener();
+  };
   const offline = () => report('offline');
   window.addEventListener('online', retry);
   window.addEventListener('offline', offline);
-
-  unsubscribe = onSnapshot(recordsRef, snapshot => {
-    if (stopped) return;
-    remoteRecords = new Map(snapshot.docs.map(item => [item.id, { key: item.id, ...item.data() }]));
-    for (const [key, pending] of pendingRecords) {
-      const remote = remoteRecords.get(key);
-      if (remote && recordCompare(remote, pending) >= 0) pendingRecords.delete(key);
-    }
-    if (!snapshot.metadata.fromCache) serverReady = true;
-
-    const local = stateRecords(getState());
-    const mergedRecords = reconcileRecordMaps(local, remoteRecords);
-    const mergedState = materializeRecords(getState(), mergedRecords);
-    const mergedStateRecords = stateRecords(mergedState);
-    if (!sameMap(local, mergedStateRecords)) {
-      setState(mergedState);
-      persistLocal();
-      onRemoteState?.();
-    }
-    previousRecords = mergedStateRecords;
-    if (serverReady) void pushLocalWinners();
-    else report(navigator.onLine ? 'connecting' : 'offline');
-  }, error => report('error', error?.message || '无法读取云端账本；本机数据仍已保存。'));
+  attachListener();
 
   return {
     localStateChanged() {
@@ -301,10 +344,14 @@ export function startCloudSync(db, uid, { getState, setState, persistLocal, onSt
       previousRecords = stampLocalChanges(state, previousRecords);
       persistLocal();
       if (serverReady) void pushLocalWinners();
+      else if (connectionTimedOut) report('error', SYNC_CONNECT_TIMEOUT_MESSAGE);
       else report(navigator.onLine ? 'connecting' : 'offline');
     },
+    retry,
     stop() {
       stopped = true;
+      listenerGeneration += 1;
+      clearConnectionTimer();
       unsubscribe();
       window.removeEventListener('online', retry);
       window.removeEventListener('offline', offline);

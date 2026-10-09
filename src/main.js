@@ -331,14 +331,14 @@ function sidebar() {
     ['review', '收支复盘'],
     ['plan', '资金分配'],
     ['obligations', '借款与信用'],
-    ['ledgers', '账本管理']
+    ['ledgers', '账本管理'],
+    ['settings', '设置与同步']
   ];
   return `<aside class="sidebar">
     <div class="brand"><div class="brand-mark"><span></span></div><div><strong>Solar Flow</strong><small>让钱流向生活</small></div></div>
     <nav class="nav-list" aria-label="主导航">${items.map(([id, label]) => `<button class="nav-item ${view === id ? 'active' : ''}" data-nav="${id}"><span class="nav-icon">${categoryGlyph(id)}</span><span>${label}</span></button>`).join('')}</nav>
     <div class="sidebar-bottom">
       <div class="offline-pill"><i></i><span>本机离线可用</span></div>
-      <button class="nav-item ${view === 'settings' ? 'active' : ''}" data-nav="settings"><span class="nav-icon">${categoryGlyph('settings')}</span><span>设置与同步</span></button>
       <div class="profile-chip"><div class="avatar">S</div><div><strong>Solar Flow</strong><small>人民币 · 个人版</small></div></div>
     </div>
   </aside>`;
@@ -828,8 +828,14 @@ function bindEvents() {
   }));
   document.querySelectorAll('[data-sync-now]').forEach(button => button.addEventListener('click', () => {
     if (!navigator.onLine) return notify('当前离线，联网后会自动同步。', 'info');
-    syncEngine?.localStateChanged();
-    notify('正在检查并同步账本。');
+    if (!syncEngine) return notify('同步服务尚未就绪，请刷新页面后重试。', 'error');
+    if (['connecting', 'error'].includes(syncStatus.status)) {
+      syncEngine.retry();
+      notify('正在重新连接云端账本。');
+    } else {
+      syncEngine.localStateChanged();
+      notify('正在检查并同步账本。');
+    }
   }));
   document.querySelectorAll('[data-auth-merge-local]').forEach(button => button.addEventListener('click', () => {
     const user = pendingAccountUser;
